@@ -1,0 +1,198 @@
+// schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"  // Choisissez le fournisseur de base de données approprié (MySQL, PostgreSQL, etc.)
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id_user   Int       @id @default(autoincrement())
+  first_name String
+  last_name  String
+  email     String    @unique
+  password  String
+  address   String?
+  phone     String?
+  role      String    @default("client")
+  created_at DateTime @default(now())
+  is_deleted Boolean @default(false)
+  orders    Order[]
+  cart      Cart[]
+  productReviews ProductReview[]
+  wishlist  Wishlist[]
+  supportMessages CustomerSupportMessage[]
+  administrator Administrator?
+}
+
+model Administrator {
+  id_admin     Int     @id
+  permissions  String
+  user         User    @relation(fields: [id_admin], references: [id_user], onDelete: Cascade)
+}
+
+model Category {
+  id_category Int      @id @default(autoincrement())
+  name        String
+  description String?
+  created_at  DateTime @default(now())
+  is_deleted  Boolean  @default(false)
+  products    Product[]
+}
+
+model Product {
+  id_product  Int       @id @default(autoincrement())
+  name        String
+  description String?
+  codeProduct String
+  price       Float
+  stock       Int
+  image       String?
+  id_category Int
+  created_at  DateTime  @default(now())
+  is_deleted  Boolean   @default(false)
+  category    Category  @relation(fields: [id_category], references: [id_category], onDelete: Cascade)
+  orderDetails OrderDetail[]
+  productReviews ProductReview[]
+  stockHistory StockHistory[]
+  cart         Cart[]
+  wishlist     Wishlist[]
+  orderReturns OrderReturn[]
+}
+
+model Order {
+  id_order    Int       @id @default(autoincrement())
+  id_user     Int
+  order_date  DateTime  @default(now())
+  status      String    @default("pending")
+  total       Float
+  created_at  DateTime  @default(now())
+  is_deleted  Boolean   @default(false)
+  user        User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  orderDetails OrderDetail[]
+  payments    Payment[]
+  deliveries  Delivery[]
+  returns     OrderReturn[]
+}
+
+model OrderDetail {
+  id_order_detail Int      @id @default(autoincrement())
+  id_order        Int
+  id_product      Int
+  quantity        Int
+  unit_price      Float
+  created_at      DateTime @default(now())
+  is_deleted      Boolean  @default(false)
+  order           Order @relation(fields: [id_order], references: [id_order], onDelete: Cascade)
+  product         Product   @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model Payment {
+  id_payment   Int       @id @default(autoincrement())
+  id_order     Int
+  amount       Float
+  status       String    @default("pending")
+  method       String
+  payment_date DateTime  @default(now())
+  created_at   DateTime  @default(now())
+  is_deleted   Boolean   @default(false)
+  order        Order @relation(fields: [id_order], references: [id_order], onDelete: Cascade)
+  transactions Transaction[]
+}
+
+model Transaction {
+  id_transaction Int      @id @default(autoincrement())
+  id_payment     Int
+  status         String
+  amount         Float
+  method         String
+  transaction_date DateTime @default(now())
+  created_at     DateTime @default(now())
+  is_deleted     Boolean  @default(false)
+  payment        Payment   @relation(fields: [id_payment], references: [id_payment], onDelete: Cascade)
+}
+
+model Delivery {
+  id_delivery  Int       @id @default(autoincrement())
+  id_order     Int
+  delivery_address String
+  status       String    @default("in progress")
+  delivery_date DateTime @default(now())
+  created_at   DateTime  @default(now())
+  is_deleted   Boolean   @default(false)
+  order        Order @relation(fields: [id_order], references: [id_order], onDelete: Cascade)
+}
+
+model Cart {
+  id_cart     Int       @id @default(autoincrement())
+  id_user     Int
+  id_product  Int
+  quantity    Int
+  created_at  DateTime  @default(now())
+  is_deleted  Boolean   @default(false)
+  user        User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  product     Product   @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model ProductReview {
+  id_review   Int       @id @default(autoincrement())
+  id_user     Int
+  id_product  Int
+  rating      Int
+  comment     String?
+  review_date DateTime  @default(now())
+  created_at  DateTime  @default(now())
+  is_deleted  Boolean   @default(false)
+  user        User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  product     Product   @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model StockHistory {
+  id_stock_history Int      @id @default(autoincrement())
+  id_product       Int
+  quantity_before  Int
+  quantity_after   Int
+  movement_type    String
+  movement_date    DateTime @default(now())
+  created_at       DateTime @default(now())
+  is_deleted       Boolean  @default(false)
+  product          Product  @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model Wishlist {
+  id_wishlist  Int       @id @default(autoincrement())
+  id_user      Int
+  id_product   Int
+  added_date   DateTime  @default(now())
+  created_at   DateTime  @default(now())
+  is_deleted   Boolean   @default(false)
+  user         User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+  product      Product   @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model OrderReturn {
+  id_return    Int       @id @default(autoincrement())
+  id_order     Int
+  id_product   Int
+  reason       String
+  status       String    @default("pending")
+  request_date DateTime  @default(now())
+  created_at   DateTime  @default(now())
+  is_deleted   Boolean   @default(false)
+  order        Order @relation(fields: [id_order], references: [id_order], onDelete: Cascade)
+  product      Product   @relation(fields: [id_product], references: [id_product], onDelete: Cascade)
+}
+
+model CustomerSupportMessage {
+  id_message   Int       @id @default(autoincrement())
+  id_user      Int
+  message      String
+  admin_response String?
+  sent_date    DateTime  @default(now())
+  created_at   DateTime  @default(now())
+  is_deleted   Boolean   @default(false)
+  user         User      @relation(fields: [id_user], references: [id_user], onDelete: Cascade)
+}

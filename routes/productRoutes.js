@@ -5,6 +5,9 @@ const productController = require('../controllers/productController');
 // Route pour récupérer tous les produits
 router.get('/', productController.getAllProducts);
 
+// Route pour récupérer tous les produits avec scroll
+router.get('/scroll', productController.getAllProductsScroll);
+
 // Route pour récupérer un produit par ID
 router.get('/:id', productController.getProductById);
 

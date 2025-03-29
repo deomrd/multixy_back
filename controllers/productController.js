@@ -1,37 +1,95 @@
 const { sendErrorMessage } = require('../services/errorService');
 const { handleTryCatch } = require('../services/tryCatchService');
 const { PrismaClient } = require('@prisma/client');
+const upload = require('../middlewares/uploadMiddleware');
 const prisma = new PrismaClient();
 
 // Récupérer tous les produits avec leurs relations
 const getAllProducts = async (req, res) => {
   try {
-    const { offset = 0, limit = 6 } = req.query;
+    let { offset = 0, limit = 6 } = req.query;
 
+    // Validation des entrées
+    offset = parseInt(offset, 10);
+    limit = parseInt(limit, 10);
+
+    if (isNaN(offset) || isNaN(limit) || offset < 0 || limit <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Les paramètres offset et limit doivent être des nombres valides et positifs.",
+      });
+    }
+
+    // Récupération des produits avec pagination
     const products = await prisma.product.findMany({
-      skip: parseInt(offset),
-      take: parseInt(limit),
+      skip: offset,
+      take: limit,
     });
 
+    // Nombre total de produits
     const total = await prisma.product.count();
 
     res.json({
       success: true,
       data: products,
       page: Math.floor(offset / limit) + 1,
-      limit: parseInt(limit),
+      limit,
       total,
       totalPages: Math.ceil(total / limit),
     });
+
   } catch (error) {
-    console.error('Erreur lors de la récupération des produits :', error);
+    console.error("Erreur lors de la récupération des produits :", error);
     res.status(500).json({
       success: false,
-      message: "Erreur lors de la récupération des produits"
+      message: "Une erreur interne est survenue. Veuillez réessayer plus tard.",
     });
   }
 };
 
+const getAllProductsScroll = async (req, res) => {
+  try {
+    let { cursor, limit = 6 } = req.query;
+
+    // Validation des entrées
+    limit = parseInt(limit, 10);
+
+    if (isNaN(limit) || limit <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Le paramètre limit doit être un nombre valide et supérieur à 0.",
+      });
+    }
+
+    // Récupération des produits avec pagination par curseur
+    const products = await prisma.product.findMany({
+      take: limit,
+      ...(cursor ? { cursor: { id: parseInt(cursor) }, skip: 1 } : {}),
+      orderBy: { id: "asc" },
+    });
+
+    // Déterminer le nouveau curseur
+    const nextCursor = products.length > 0 ? products[products.length - 1].id : null;
+
+    // Nombre total de produits
+    const total = await prisma.product.count();
+
+    res.json({
+      success: true,
+      data: products,
+      limit,
+      total,
+      nextCursor,
+    });
+
+  } catch (error) {
+    console.error("Erreur lors de la récupération des produits :", error);
+    res.status(500).json({
+      success: false,
+      message: "Une erreur interne est survenue. Veuillez réessayer plus tard.",
+    });
+  }
+};
 
 
 
@@ -106,43 +164,91 @@ const getProductById = async (req, res) => {
 
 // Créer un produit et enregistrer l'historique du stock
 const createProduct = async (req, res) => {
-  const { name, description, codeProduct, price, stock, image, id_category } = req.body;
-
-  await handleTryCatch(async () => {
-    if (!name || !price || !stock || !id_category) {
-      throw { code: 400, message: 'Les champs obligatoires (name, price, stock, id_category) doivent être remplis' };
+  // Utilisation du middleware Multer pour gérer l'upload de l'image
+  upload(req, res, async (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message,
+      });
     }
 
-    // Créer un nouveau produit
-    const newProduct = await prisma.product.create({
-      data: {
-        name,
-        description,
-        codeProduct,
-        price: parseFloat(price),
-        stock: parseInt(stock),
-        image,
-        id_category: parseInt(id_category),
-      },
-    });
+    const { name, description, codeProduct, price, stock, id_category } = req.body;
 
-    // Créer une entrée dans l'historique du stock pour ce produit
-    const newStockHistory = await prisma.stockHistory.create({
-      data: {
-        id_product: newProduct.id_product,
-        quantity_before: 0, // Avant la création, le stock était de 0
-        quantity_after: parseInt(stock), // Le stock après la création
-        movement_type: 'added', // Le type de mouvement (ajout de stock)
-      },
-    });
+    // Vérification des champs obligatoires
+    if (!name || !codeProduct || !price || !stock || !id_category) {
+      return res.status(400).json({
+        success: false,
+        message: 'Les champs obligatoires (name, codeProduct, price, stock, id_category) doivent être remplis',
+      });
+    }
 
-    res.status(201).json({
-      success: true,
-      message: 'Produit créé avec succès',
-      product: newProduct,
-      stockHistory: newStockHistory,
-    });
-  }, res);
+    try {
+      // Vérification si `codeProduct` existe déjà en base de données
+      const existingProduct = await prisma.product.findFirst({
+        where: { codeProduct },
+      });
+
+      if (existingProduct) {
+        return res.status(400).json({
+          success: false,
+          message: `Le code produit "${codeProduct}" est déjà utilisé.`,
+        });
+      }
+
+      // Conversion des types de données
+      const parsedPrice = parseFloat(price);
+      const parsedStock = parseInt(stock, 10);
+      const parsedCategoryId = parseInt(id_category, 10);
+
+      if (isNaN(parsedPrice) || isNaN(parsedStock) || isNaN(parsedCategoryId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Les champs price, stock et id_category doivent être des nombres valides",
+        });
+      }
+
+      // Si une image est téléchargée, on ajoute son chemin à la base de données
+      const imagePath = req.file ? `/uploads/${req.file.filename}` : null;
+
+      // Création du produit
+      const newProduct = await prisma.product.create({
+        data: {
+          name,
+          description,
+          codeProduct,
+          price: parsedPrice,
+          stock: parsedStock,
+          image: imagePath,
+          id_category: parsedCategoryId,
+        },
+      });
+
+      // Création de l'historique du stock
+      const newStockHistory = await prisma.stockHistory.create({
+        data: {
+          id_product: newProduct.id_product,
+          quantity_before: 0,
+          quantity_after: parsedStock,
+          movement_type: 'added',
+        },
+      });
+
+      res.status(201).json({
+        success: true,
+        message: 'Produit créé avec succès',
+        product: newProduct,
+        stockHistory: newStockHistory,
+      });
+
+    } catch (error) {
+      console.error('Erreur lors de la création du produit :', error);
+      res.status(500).json({
+        success: false,
+        message: "Une erreur interne est survenue. Veuillez réessayer plus tard.",
+      });
+    }
+  });
 };
 
 // Mettre à jour un produit
@@ -233,5 +339,6 @@ module.exports = {
   updateProduct,
   deleteProduct,
   searchProducts,
-  getProductsByCategory
+  getProductsByCategory,
+  getAllProductsScroll
 };
